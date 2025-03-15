@@ -1,0 +1,12 @@
+{
+  "name": "blocking-io-prototype",
+  "private": true,
+  "description": "Worker I/O Prototype",
+  "scripts": {
+    "serve": "./serve.bash"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0",
+    "typescript": "^5.0.0"
+  }
+}
