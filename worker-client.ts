@@ -62,25 +62,27 @@ function initClientWorker() {
             continue;
           }
 
-          // Read the message data
-          const message = new Uint8Array(messageLength);
-          for (let i = 0; i < messageLength; i++) {
-            message[i] = sharedArray![CLIENT_HEADER_SIZE + i];
-          }
-
+          // Read the message data - use a more efficient approach with a view instead of copying
+          // This avoids memory allocation and copying overhead
+          const messageView = sharedArray!.subarray(CLIENT_HEADER_SIZE, CLIENT_HEADER_SIZE + messageLength);
+          
           // Set the flag byte back to 0 (no data available)
           Atomics.store(int32Array!, 0, 0);
 
-          // Send an acknowledgment to the host
+          // Send an acknowledgment to the host immediately
           port!.postMessage({ type: "ack", ack: true });
 
           // Increment message counter
           messagesReceived++;
 
           // Notify main thread about received message for statistics
-          self.postMessage({
-            type: "messageReceived",
-          });
+          // Use a more aggressive batching approach to reduce main thread overhead
+          if (messagesReceived % 100 === 0) {
+            self.postMessage({
+              type: "messageReceived",
+              count: 100
+            });
+          }
 
           // Only log detailed message info for the first few messages during a test
           // to avoid overwhelming the UI

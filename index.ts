@@ -41,12 +41,22 @@ function logMessage(message: string): void {
   console.log(message);
 }
 
+// Last update timestamp to throttle UI updates
+let lastStatsUpdateTime = 0;
+
 // Function to update statistics display
 function updateStats(): void {
   const statsElement = document.getElementById("stats");
   if (!statsElement) return;
+  
+  const now = Date.now();
+  // Throttle updates to max 10 per second to avoid UI bottlenecks
+  if (!testRunning && now - lastStatsUpdateTime < 100) {
+    return;
+  }
+  lastStatsUpdateTime = now;
 
-  const duration = (testStats.endTime || Date.now()) - testStats.startTime;
+  const duration = (testStats.endTime || now) - testStats.startTime;
   const durationSec = duration / 1000;
   const messagesPerSecond =
     durationSec > 0 ? testStats.messagesReceived / durationSec : 0;
@@ -96,7 +106,8 @@ hostWorker.addEventListener("message", (event) => {
   }
 
   if (data.type === "messageSent") {
-    testStats.messagesSent++;
+    const count = data.count || 1;
+    testStats.messagesSent += count;
     testStats.bytesTransferred += data.size || 0;
     updateStats();
     return;
@@ -110,7 +121,9 @@ clientWorker.addEventListener("message", (event) => {
   const data = event.data;
 
   if (data.type === "messageReceived") {
-    testStats.messagesReceived++;
+    // Support batch updates for better performance
+    const count = data.count || 1;
+    testStats.messagesReceived += count;
     updateStats();
     return;
   }
@@ -139,10 +152,14 @@ function startTest(): void {
   testRunning = true;
   updateStats();
 
-  const messagesPerSecond = parseInt(
-    (document.getElementById("messagesPerSecond") as HTMLInputElement).value,
-    10,
-  );
+  const messagesPerSecondInput = document.getElementById("messagesPerSecond") as HTMLInputElement;
+  const maxThroughputCheckbox = document.getElementById("maxThroughput") as HTMLInputElement;
+  
+  // If max throughput is checked, use 0 to indicate unlimited rate
+  const messagesPerSecond = maxThroughputCheckbox.checked ? 
+    0 : 
+    parseInt(messagesPerSecondInput.value, 10);
+  
   const testDuration = parseInt(
     (document.getElementById("testDuration") as HTMLInputElement).value,
     10,
@@ -156,8 +173,12 @@ function startTest(): void {
     testDuration,
   });
 
+  const rateDescription = messagesPerSecond > 0 ? 
+    `${messagesPerSecond} msgs/sec` : 
+    "maximum throughput";
+  
   logMessage(
-    `Starting throughput test: ${messagesPerSecond} msgs/sec, ${testStats.messageSize} bytes per message, ${testDuration} seconds`,
+    `Starting throughput test: ${rateDescription}, ${testStats.messageSize} bytes per message, ${testDuration} seconds`,
   );
 
   // Set a timer to end the test
@@ -194,6 +215,6 @@ window.addEventListener("load", () => {
     stopButton.addEventListener("click", stopTest);
   }
 
-  // Update stats periodically
-  setInterval(updateStats, 500);
+  // Update stats periodically - more frequent updates during tests
+  setInterval(updateStats, 100);
 });

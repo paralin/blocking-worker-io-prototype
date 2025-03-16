@@ -20,6 +20,7 @@ function initHostWorker() {
   let testInterval: number | null = null;
   let testMessageSize = 1024;
   let testMessageRate = 100; // messages per second
+  let messagesSent = 0; // Counter for batching message sent reports
 
   // Create a test message of specified size
   function createTestMessage(size: number): Uint8Array {
@@ -71,20 +72,80 @@ function initHostWorker() {
 
     if (!isAvailable) {
       // Buffer is busy, queue the message
-      messageQueue.push(data);
-      // Report queue depth to main thread
-      reportQueueStats();
-      return;
+      // Only track queue depth in stats, don't actually queue in max throughput mode
+      // to avoid memory pressure
+      if (testRunning && testMessageRate === 0) {
+        // Just count it as queued but don't actually queue it
+        self.postMessage({
+          type: "stats",
+          queueDepth: messageQueue.length + 1,
+        });
+        return;
+      } else {
+        // Normal mode - actually queue the message
+        messageQueue.push(data);
+        // Report queue depth to main thread
+        reportQueueStats();
+        return;
+      }
     }
 
     // Write to the shared buffer
     writeToSharedBuffer(data);
 
     // Report message sent to main thread for statistics
-    self.postMessage({
-      type: "messageSent",
-      size: data.length,
-    });
+    // Batch these updates to reduce overhead
+    if (testRunning) {
+      // In test mode, only report every 100 messages
+      if (++messagesSent % 100 === 0) {
+        self.postMessage({
+          type: "messageSent",
+          size: data.length * 100,
+          count: 100
+        });
+      }
+    } else {
+      // Normal mode - report every message
+      self.postMessage({
+        type: "messageSent",
+        size: data.length,
+      });
+    }
+    
+    // Immediately try to send another message if we're in max throughput mode
+    // and we have queued messages
+    if (testRunning && testMessageRate === 0 && messageQueue.length > 0) {
+      // Use microtask to avoid blocking
+      queueMicrotask(processQueue);
+    }
+  }
+  
+  // Process the message queue
+  function processQueue(): void {
+    if (messageQueue.length === 0) return;
+    
+    // Check if the buffer is available for writing
+    const int32View = new Int32Array(sharedBuffer!);
+    const isAvailable = Atomics.load(int32View, 0) === 0;
+    
+    if (isAvailable && messageQueue.length > 0) {
+      const nextMessage = messageQueue.shift()!;
+      writeToSharedBuffer(nextMessage);
+      
+      // Report message sent to main thread for statistics
+      self.postMessage({
+        type: "messageSent",
+        size: nextMessage.length,
+      });
+      
+      // Report updated queue stats
+      reportQueueStats();
+      
+      // Continue processing queue if in max throughput mode
+      if (testRunning && testMessageRate === 0) {
+        queueMicrotask(processQueue);
+      }
+    }
   }
 
   // Report queue statistics to the main thread
@@ -110,22 +171,8 @@ function initHostWorker() {
         messageCallback(data);
       }
     } else if (type === "ack" && ack === true) {
-      // Client acknowledged receiving the message, send the next message if any
-      if (messageQueue.length > 0) {
-        const nextMessage = messageQueue.shift();
-        if (nextMessage) {
-          writeToSharedBuffer(nextMessage);
-
-          // Report message sent to main thread for statistics
-          self.postMessage({
-            type: "messageSent",
-            size: nextMessage.length,
-          });
-        }
-
-        // Report updated queue stats
-        reportQueueStats();
-      }
+      // Client acknowledged receiving the message, process the queue
+      processQueue();
     }
   }
 
@@ -143,26 +190,55 @@ function initHostWorker() {
     // Clear any existing interval
     if (testInterval !== null) {
       clearInterval(testInterval);
+      testInterval = null;
     }
 
-    // Calculate interval between messages
-    const intervalMs = 1000 / testMessageRate;
-
-    // Start sending messages at the specified rate
-    testInterval = setInterval(() => {
-      if (!testRunning) {
-        clearInterval(testInterval!);
-        testInterval = null;
-        return;
+    // Pre-generate a batch of test messages to avoid overhead during the test
+    // Use a single reusable message buffer for maximum performance
+    const testMessage = createTestMessage(testMessageSize);
+    
+    // Function to send messages as fast as possible with backpressure
+    const sendMessages = () => {
+      if (!testRunning) return;
+      
+      // In max throughput mode, send multiple messages per frame
+      if (messagesPerSecond === 0) {
+        // Send up to 100 messages at once to reduce scheduling overhead
+        const batchSize = 100;
+        for (let i = 0; i < batchSize; i++) {
+          if (!testRunning) break;
+          
+          // Check if buffer is available before trying to send
+          const int32View = new Int32Array(sharedBuffer!);
+          if (Atomics.load(int32View, 0) !== 0) {
+            // Buffer is busy, schedule next batch
+            queueMicrotask(sendMessages);
+            return;
+          }
+          
+          // Send the message
+          writeToClient(testMessage);
+        }
+        
+        // Schedule next batch immediately
+        queueMicrotask(sendMessages);
+      } else {
+        // Rate-limited mode
+        // Send the message
+        writeToClient(testMessage);
+        
+        // Calculate interval between messages
+        const intervalMs = 1000 / testMessageRate;
+        // Schedule next message
+        setTimeout(sendMessages, intervalMs);
       }
+    };
 
-      // Create and send a test message
-      const testMessage = createTestMessage(testMessageSize);
-      writeToClient(testMessage);
-    }, intervalMs);
+    // Start sending messages
+    sendMessages();
 
     // Report queue stats periodically
-    setInterval(reportQueueStats, 500);
+    setInterval(reportQueueStats, 100);
   }
 
   // Stop the throughput test
