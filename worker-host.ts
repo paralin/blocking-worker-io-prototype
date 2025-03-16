@@ -125,19 +125,21 @@ function processQueue(): void {
   const isAvailable = Atomics.load(int32View, 0) === 0;
 
   if (isAvailable) {
-    // Take up to MAX_BATCH_SIZE messages from the queue
-    // Always try to fill the batch to MAX_BATCH_SIZE when queue has enough messages
-    const batchSize = Math.min(MAX_BATCH_SIZE, messageQueue.length);
-    const batch = messageQueue.splice(0, batchSize);
+    // Only send a batch if we have enough messages for a full batch
+    // or if we're not in test mode (for normal operation)
+    if (messageQueue.length >= MAX_BATCH_SIZE || !testRunning) {
+      // Take up to MAX_BATCH_SIZE messages from the queue
+      const batchSize = Math.min(MAX_BATCH_SIZE, messageQueue.length);
+      const batch = messageQueue.splice(0, batchSize);
 
-    // Send the batch
-    writeBatchToSharedBuffer(batch);
+      // Send the batch
+      writeBatchToSharedBuffer(batch);
 
-    // Report updated queue stats
-    reportQueueStats();
-
-    // Note: We don't schedule another processQueue here
-    // The client's "ack" message will trigger the next batch processing
+      // Report updated queue stats
+      reportQueueStats();
+    }
+    // If we don't have enough messages and we're in test mode,
+    // wait for the queue to fill up more before sending
   }
 }
 
@@ -199,13 +201,13 @@ function startThroughputTest(messageSize: number): void {
     if (!testRunning) return;
 
     // Fill the queue to MAX_QUEUE_SIZE to ensure we have enough messages
-    // for full batches
+    // for full batches - do this synchronously to ensure it's filled quickly
     while (messageQueue.length < MAX_QUEUE_SIZE && testRunning) {
       writeToClient(testMessage);
     }
 
-    // Schedule next fill check
-    setTimeout(sendMessages, 10);
+    // Schedule next fill check - more frequently to ensure queue stays full
+    setTimeout(sendMessages, 1); // Reduced from 10ms to 1ms
   };
 
   // Start sending messages
