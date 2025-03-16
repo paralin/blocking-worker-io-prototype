@@ -60,7 +60,7 @@ General approach for writing from host to client:
    use Atomics.store to set index 0 to 1.
 
 2. Client: use Atomics.wait in a blocking function to wait for either a timeout
-   (third parameter to wait) or for index 0 of the SharedArrayBuffer to be set
+   (third parameter to wait** or for index 0 of the SharedArrayBuffer to be set
    to 1. Read the integer with the message length. Read the message contents to
    a Uint8Array. Set position 0 to 0. Return the uint8array. Send a message with
    postMessage on port2 acking receiving the message.
@@ -73,7 +73,7 @@ General approach for writing from client to host:
 1. Client: call postMessage on port2 with the Uint8Array.
 2. Host: handle the incoming Uint8Array with onmessage. Emit it to the message callback.
 
-Review this design proposal, with the following in mind:
+Keep the following considerations in mind:
 
 - It is necessary to have this asymmetric communication pattern because we can
   leverage the performance of the simple postMessage queuing on the MessagePort
@@ -84,3 +84,40 @@ Review this design proposal, with the following in mind:
 - We don't need a ring buffer here since we are sending only one message at a
   time and removing it from the SharedArrayBuffer once received, and we need
   guaranteed lossless message delivery.
+
+### Optimization: batched
+
+## Host → Client Batching
+
+Modify the SharedArrayBuffer protocol to support multiple messages:
+
+```
+Byte 0: Available flag (0/1)
+Bytes 1-4: Total batch size
+Bytes 5-8: Number of messages in batch
+Then for each message:
+  - 4 bytes: message length
+  - N bytes: message payload
+```
+
+The client reads the full batch, processes all messages, then sends a single acknowledgment. This reduces round-trip overhead dramatically.
+
+## Client → Host Batching
+
+Even simpler - just send an array of Uint8Arrays in a single postMessage call:
+
+```javascript
+// Client side
+const messageBatch = [message1, message2, message3];
+port2.postMessage(messageBatch);
+
+// Host side
+port1.onmessage = (event) => {
+  const messages = event.data;
+  if (Array.isArray(messages)) {
+    messages.forEach(message => processMessage(message));
+  } else {
+    processMessage(messages); // Handle single message case
+  }
+};
+```

@@ -152,13 +152,8 @@ function startTest(): void {
   testRunning = true;
   updateStats();
 
-  const messagesPerSecondInput = document.getElementById("messagesPerSecond") as HTMLInputElement;
-  const maxThroughputCheckbox = document.getElementById("maxThroughput") as HTMLInputElement;
-  
-  // If max throughput is checked, use 0 to indicate unlimited rate
-  const messagesPerSecond = maxThroughputCheckbox.checked ? 
-    0 : 
-    parseInt(messagesPerSecondInput.value, 10);
+  // Always use maximum throughput (0 indicates unlimited rate)
+  const messagesPerSecond = 0;
   
   const testDuration = parseInt(
     (document.getElementById("testDuration") as HTMLInputElement).value,
@@ -169,16 +164,11 @@ function startTest(): void {
   hostWorker.postMessage({
     type: "startTest",
     messageSize: testStats.messageSize,
-    messagesPerSecond,
     testDuration,
   });
 
-  const rateDescription = messagesPerSecond > 0 ? 
-    `${messagesPerSecond} msgs/sec` : 
-    "maximum throughput";
-  
   logMessage(
-    `Starting throughput test: ${rateDescription}, ${testStats.messageSize} bytes per message, ${testDuration} seconds`,
+    `Starting throughput test: maximum throughput, ${testStats.messageSize} bytes per message, ${testDuration} seconds`,
   );
 
   // Set a timer to end the test
