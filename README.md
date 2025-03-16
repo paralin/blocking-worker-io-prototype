@@ -54,13 +54,13 @@ Requirements:
 
 General approach for writing from host to client:
 
-1. Host: check byte #1 in the SharedArrayBuffer. If it's 1, queue the message
+1. Host: check the Int32Array at index 0 in the SharedArrayBuffer. If it's 1, queue the message
    locally and return. If it's 0, write a 4 byte integer with the message length
    to index 4 and the message contents after it in the SharedArrayBuffer, then
    use Atomics.store to set index 0 to 1.
 
 2. Client: use Atomics.wait in a blocking function to wait for either a timeout
-   (third parameter to wait\*\* or for index 0 of the SharedArrayBuffer to be set
+   (third parameter to wait) or for index 0 of the Int32Array view of the SharedArrayBuffer to be set
    to 1. Read the integer with the message length. Read the message contents to
    a Uint8Array. Set position 0 to 0. Return the uint8array. Send a message with
    postMessage on port2 acking receiving the message.
