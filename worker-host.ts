@@ -222,6 +222,18 @@ function startThroughputTest(messageSize: number): void {
 function stopThroughputTest(): void {
   testRunning = false;
 
+  // Log final statistics
+  self.postMessage({
+    type: "testComplete",
+    message: `Host test complete: Sent ${totalBatchMessages} messages in ${totalBatchCount} batches, avg batch size: ${(totalBatchMessages / totalBatchCount).toFixed(2)}, max batch size: ${maxBatchSize}`,
+    stats: {
+      messagesSent: totalBatchMessages,
+      batchesSent: totalBatchCount,
+      avgBatchSize: totalBatchMessages / totalBatchCount,
+      maxBatchSize: maxBatchSize
+    }
+  });
+
   // Clear the message queue
   messageQueue = [];
   reportQueueStats();

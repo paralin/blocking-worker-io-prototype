@@ -121,6 +121,11 @@ hostWorker.addEventListener("message", (event) => {
     return;
   }
 
+  if (data.type === "testComplete") {
+    logMessage(`Host worker: ${data.message}`);
+    return;
+  }
+
   logMessage(`Host worker: ${data.message}`);
 });
 
@@ -133,6 +138,11 @@ clientWorker.addEventListener("message", (event) => {
     const count = data.count || 1;
     testStats.messagesReceived += count;
     updateStats();
+    return;
+  }
+
+  if (data.type === "testComplete") {
+    logMessage(`Client worker: ${data.message}`);
     return;
   }
 
@@ -196,6 +206,7 @@ function stopTest(): void {
   updateStats();
 
   hostWorker.postMessage({ type: "stopTest" });
+  clientWorker.postMessage({ type: "stopTest" });
   logMessage("Throughput test completed");
 }
 

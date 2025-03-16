@@ -164,7 +164,11 @@ function handleHostMessage(event: MessageEvent): void {
     // Exit test mode
     testRunning = false;
     self.postMessage({
-      message: `Client exited test mode, received ${messagesReceived} messages`,
+      type: "testComplete",
+      message: `Client test complete: Received ${messagesReceived} messages`,
+      stats: {
+        messagesReceived: messagesReceived
+      }
     });
   }
 }
