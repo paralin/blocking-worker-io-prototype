@@ -18,6 +18,10 @@ let messageQueue: Uint8Array[] = [];
 let messageCallback: MessageCallback | null = null;
 let testRunning = false;
 let testMessageSize = 1024;
+let maxBatchSize = 0;
+let totalBatchCount = 0;
+let totalBatchMessages = 0;
+const MAX_QUEUE_SIZE = 200; // Maximum number of messages in the queue for backpressure
 
 // Create a test message of specified size
 function createTestMessage(size: number): Uint8Array {
@@ -52,18 +56,18 @@ function writeBatchToSharedBuffer(messages: Uint8Array[]): void {
   }
 
   const dataView = new DataView(sharedBuffer);
-  
+
   // Write batch metadata
   dataView.setUint32(4, totalSize, true); // Total batch size in bytes
   dataView.setUint32(8, messages.length, true); // Number of messages in batch
-  
+
   // Write each message with its length prefix
   let offset = HEADER_SIZE;
   for (const msg of messages) {
     // Write message length
     dataView.setUint32(offset, msg.length, true);
     offset += 4;
-    
+
     // Write message data
     sharedArray.set(msg, offset);
     offset += msg.length;
@@ -73,12 +77,19 @@ function writeBatchToSharedBuffer(messages: Uint8Array[]): void {
   const int32View = new Int32Array(sharedBuffer);
   Atomics.store(int32View, 0, 1);
   Atomics.notify(int32View, 0, 1);
-  
+
+  // Update batch statistics
+  totalBatchCount++;
+  totalBatchMessages += messages.length;
+  maxBatchSize = Math.max(maxBatchSize, messages.length);
+
   // Report messages sent to main thread for statistics
   self.postMessage({
     type: "messageSent",
     size: totalSize,
-    count: messages.length
+    count: messages.length,
+    avgBatchSize: totalBatchMessages / totalBatchCount,
+    maxBatchSize: maxBatchSize,
   });
 }
 
@@ -89,12 +100,18 @@ function writeToClient(data: Uint8Array): void {
     return;
   }
 
-  // Always queue the message first
+  // Apply backpressure if queue is too large
+  if (messageQueue.length >= MAX_QUEUE_SIZE) {
+    // Drop the message or wait - for now we'll just return
+    return;
+  }
+
+  // Queue the message
   messageQueue.push(data);
-  
+
   // Report queue depth to main thread
   reportQueueStats();
-  
+
   // Try to process the queue immediately
   processQueue();
 }
@@ -102,26 +119,25 @@ function writeToClient(data: Uint8Array): void {
 // Process the message queue
 function processQueue(): void {
   if (messageQueue.length === 0) return;
-  
+
   // Check if the buffer is available for writing
   const int32View = new Int32Array(sharedBuffer!);
   const isAvailable = Atomics.load(int32View, 0) === 0;
-  
+
   if (isAvailable) {
     // Take up to MAX_BATCH_SIZE messages from the queue
+    // Always try to fill the batch to MAX_BATCH_SIZE when queue has enough messages
     const batchSize = Math.min(MAX_BATCH_SIZE, messageQueue.length);
     const batch = messageQueue.splice(0, batchSize);
-    
+
     // Send the batch
     writeBatchToSharedBuffer(batch);
-    
+
     // Report updated queue stats
     reportQueueStats();
-    
-    // Continue processing queue if there are more messages
-    if (messageQueue.length > 0) {
-      queueMicrotask(processQueue);
-    }
+
+    // Note: We don't schedule another processQueue here
+    // The client's "ack" message will trigger the next batch processing
   }
 }
 
@@ -138,11 +154,6 @@ function handleClientMessage(event: MessageEvent): void {
   const { type, data, messages, ack } = event.data;
 
   if (type === "toHost" && data instanceof Uint8Array) {
-    // Forward received message to the main thread
-    self.postMessage({
-      message: `Received ${data.length} bytes from client`,
-    });
-
     // If a message callback is registered, call it
     if (messageCallback) {
       messageCallback(data);
@@ -150,11 +161,11 @@ function handleClientMessage(event: MessageEvent): void {
   } else if (type === "toHostBatch" && Array.isArray(messages)) {
     // Process batch of messages from client
     const totalBytes = messages.reduce((sum, msg) => sum + msg.length, 0);
-    
+
     self.postMessage({
       message: `Received batch of ${messages.length} messages, total ${totalBytes} bytes from client`,
     });
-    
+
     // If a message callback is registered, call it for each message
     if (messageCallback) {
       for (const msg of messages) {
@@ -163,38 +174,45 @@ function handleClientMessage(event: MessageEvent): void {
     }
   } else if (type === "ack" && ack === true) {
     // Client acknowledged receiving the message, process the queue immediately
-    queueMicrotask(processQueue);
+    // This is critical for maintaining high throughput with full batches
+    processQueue();
   }
 }
 
 // Start the throughput test
-function startThroughputTest(
-  messageSize: number,
-): void {
+function startThroughputTest(messageSize: number): void {
   if (testRunning) return;
 
   testRunning = true;
   testMessageSize = messageSize;
-  
+
+  // Reset batch statistics
+  maxBatchSize = 0;
+  totalBatchCount = 0;
+  totalBatchMessages = 0;
+
   // Pre-generate a test message to avoid overhead during the test
   const testMessage = createTestMessage(testMessageSize);
-  
+
   // Function to send messages as fast as possible
   const sendMessages = () => {
     if (!testRunning) return;
-    
-    // Queue messages as fast as possible and let the batching mechanism handle them
-    for (let i = 0; i < MAX_BATCH_SIZE; i++) {
-      if (!testRunning) break;
+
+    // Fill the queue to MAX_QUEUE_SIZE to ensure we have enough messages
+    // for full batches
+    while (messageQueue.length < MAX_QUEUE_SIZE && testRunning) {
       writeToClient(testMessage);
     }
-    
-    // Schedule next batch immediately
-    queueMicrotask(sendMessages);
+
+    // Schedule next fill check
+    setTimeout(sendMessages, 10);
   };
 
   // Start sending messages
   sendMessages();
+
+  // Kick off the first batch processing
+  processQueue();
 
   // Report queue stats periodically
   setInterval(reportQueueStats, 100);
@@ -203,7 +221,7 @@ function startThroughputTest(
 // Stop the throughput test
 function stopThroughputTest(): void {
   testRunning = false;
-  
+
   // Clear the message queue
   messageQueue = [];
   reportQueueStats();

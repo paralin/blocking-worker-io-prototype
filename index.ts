@@ -9,6 +9,8 @@ interface MessageStats {
   endTime: number;
   messageSize: number;
   queueDepth: number;
+  avgBatchSize: number;
+  maxBatchSize: number;
 }
 
 // Global state
@@ -21,6 +23,8 @@ let testStats: MessageStats = {
   endTime: 0,
   messageSize: 1024,
   queueDepth: 0,
+  avgBatchSize: 0,
+  maxBatchSize: 0,
 };
 
 // Function to log messages to the UI
@@ -48,7 +52,7 @@ let lastStatsUpdateTime = 0;
 function updateStats(): void {
   const statsElement = document.getElementById("stats");
   if (!statsElement) return;
-  
+
   const now = Date.now();
   // Throttle updates to max 10 per second to avoid UI bottlenecks
   if (!testRunning && now - lastStatsUpdateTime < 100) {
@@ -74,6 +78,8 @@ function updateStats(): void {
     <div>Duration: ${durationSec.toFixed(2)} seconds</div>
     <div>Throughput: ${messagesPerSecond.toFixed(2)} msgs/sec</div>
     <div>Bandwidth: ${mbPerSecond.toFixed(2)} MB/sec</div>
+    <div>Avg batch size: ${testStats.avgBatchSize.toFixed(2)} msgs</div>
+    <div>Max batch size: ${testStats.maxBatchSize} msgs</div>
   `;
 }
 
@@ -109,6 +115,8 @@ hostWorker.addEventListener("message", (event) => {
     const count = data.count || 1;
     testStats.messagesSent += count;
     testStats.bytesTransferred += data.size || 0;
+    testStats.avgBatchSize = data.avgBatchSize || 0;
+    testStats.maxBatchSize = data.maxBatchSize || 0;
     updateStats();
     return;
   }
@@ -147,6 +155,8 @@ function startTest(): void {
       10,
     ),
     queueDepth: 0,
+    avgBatchSize: 0,
+    maxBatchSize: 0,
   };
 
   testRunning = true;
@@ -154,7 +164,7 @@ function startTest(): void {
 
   // Always use maximum throughput (0 indicates unlimited rate)
   const messagesPerSecond = 0;
-  
+
   const testDuration = parseInt(
     (document.getElementById("testDuration") as HTMLInputElement).value,
     10,

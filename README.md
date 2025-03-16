@@ -60,7 +60,7 @@ General approach for writing from host to client:
    use Atomics.store to set index 0 to 1.
 
 2. Client: use Atomics.wait in a blocking function to wait for either a timeout
-   (third parameter to wait** or for index 0 of the SharedArrayBuffer to be set
+   (third parameter to wait\*\* or for index 0 of the SharedArrayBuffer to be set
    to 1. Read the integer with the message length. Read the message contents to
    a Uint8Array. Set position 0 to 0. Return the uint8array. Send a message with
    postMessage on port2 acking receiving the message.
@@ -115,7 +115,7 @@ port2.postMessage(messageBatch);
 port1.onmessage = (event) => {
   const messages = event.data;
   if (Array.isArray(messages)) {
-    messages.forEach(message => processMessage(message));
+    messages.forEach((message) => processMessage(message));
   } else {
     processMessage(messages); // Handle single message case
   }

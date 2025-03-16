@@ -32,12 +32,12 @@ function writeBatchToHost(messages: Uint8Array[]): void {
     console.error("Message port not initialized");
     return;
   }
-  
+
   if (messages.length === 0) return;
-  
+
   // Create transferable array for each message
-  const transferables = messages.map(m => m.buffer);
-  
+  const transferables = messages.map((m) => m.buffer);
+
   // Send the batch to the host
   port.postMessage({ type: "toHostBatch", messages }, transferables);
 }
@@ -64,58 +64,57 @@ function readFromHost(): void {
         const dataView = new DataView(sharedBuffer!);
         const totalBatchSize = dataView.getUint32(4, true); // Total batch size
         const messageCount = dataView.getUint32(8, true); // Number of messages in batch
-        
+
         if (totalBatchSize > MAX_BATCH_BYTES) {
-          console.error(`Batch too large: ${totalBatchSize} bytes exceeds maximum of ${MAX_BATCH_BYTES}`);
+          console.error(
+            `Batch too large: ${totalBatchSize} bytes exceeds maximum of ${MAX_BATCH_BYTES}`,
+          );
           // Set the flag byte back to 0
           Atomics.store(int32Array, 0, 0);
           continue;
         }
-        
+
         // Process all messages in the batch
         let offset = HEADER_SIZE;
         const processedMessages = [];
-        
+
         for (let i = 0; i < messageCount; i++) {
           // Read message length
           const messageLength = dataView.getUint32(offset, true);
           offset += 4;
-          
+
           if (messageLength > MTU) {
-            console.error(`Message too large: ${messageLength} bytes exceeds MTU of ${MTU}`);
+            console.error(
+              `Message too large: ${messageLength} bytes exceeds MTU of ${MTU}`,
+            );
             continue;
           }
-          
+
           // Create a copy of the message data instead of just a view
           const messageCopy = new Uint8Array(messageLength);
-          messageCopy.set(sharedArray!.subarray(offset, offset + messageLength));
+          messageCopy.set(
+            sharedArray!.subarray(offset, offset + messageLength),
+          );
           processedMessages.push(messageCopy);
-          
+
           // Move to next message
           offset += messageLength;
-          
+
           // Increment message counter
           messagesReceived++;
         }
-        
+
         // Set the flag byte back to 0 (no data available)
         Atomics.store(int32Array, 0, 0);
-        
+
         // Send an acknowledgment to the host immediately
         port!.postMessage({ type: "ack", ack: true });
-        
+
         // Notify main thread about received messages for statistics
         self.postMessage({
           type: "messageReceived",
-          count: messageCount
+          count: messageCount,
         });
-        
-        // Only log detailed message info for the first few messages during a test
-        if (!testRunning || messagesReceived <= 5 || messagesReceived % 100 === 0) {
-          self.postMessage({
-            message: `Received batch of ${messageCount} messages, total ${totalBatchSize} bytes`,
-          });
-        }
 
         // During throughput tests, we don't echo back to avoid affecting measurements
         if (!testRunning && processedMessages.length > 0) {
