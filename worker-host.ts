@@ -21,6 +21,7 @@ let testMessageSize = 1024;
 let maxBatchSize = 0;
 let totalBatchCount = 0;
 let totalBatchMessages = 0;
+let statsIntervalId: number | null = null;
 const MAX_QUEUE_SIZE = 200; // Maximum number of messages in the queue for backpressure
 
 // Create a test message of specified size
@@ -217,11 +218,15 @@ function startThroughputTest(messageSize: number): void {
   processQueue();
 
   // Report queue stats periodically
-  setInterval(reportQueueStats, 100);
+  statsIntervalId = setInterval(reportQueueStats, 100);
 }
 
 // Stop the throughput test
 function stopThroughputTest(): void {
+  if (statsIntervalId !== null) {
+    clearInterval(statsIntervalId);
+    statsIntervalId = null;
+  }
   testRunning = false;
 
   // Log final statistics
@@ -287,7 +292,7 @@ self.addEventListener("message", (event) => {
     }, testDuration * 1000);
 
     self.postMessage({
-      message: `Starting throughput test: ${messagesPerSecond} msgs/sec, ${messageSize} bytes per message, ${testDuration} seconds`,
+      message: `Starting throughput test: ${messageSize} bytes per message, ${testDuration} seconds`,
     });
   } else if (type === "stopTest") {
     // Stop the throughput test

@@ -1,5 +1,7 @@
 // Main entry point for the worker I/O prototype
 
+let testRunning = false
+
 // Types for statistics
 interface MessageStats {
   messagesSent: number;
@@ -14,7 +16,6 @@ interface MessageStats {
 }
 
 // Global state
-let testRunning = false;
 let testStats: MessageStats = {
   messagesSent: 0,
   messagesReceived: 0,
@@ -45,20 +46,12 @@ function logMessage(message: string): void {
   console.log(message);
 }
 
-// Last update timestamp to throttle UI updates
-let lastStatsUpdateTime = 0;
-
 // Function to update statistics display
 function updateStats(): void {
   const statsElement = document.getElementById("stats");
   if (!statsElement) return;
 
   const now = Date.now();
-  // Throttle updates to max 10 per second to avoid UI bottlenecks
-  if (!testRunning && now - lastStatsUpdateTime < 100) {
-    return;
-  }
-  lastStatsUpdateTime = now;
 
   const duration = (testStats.endTime || now) - testStats.startTime;
   const durationSec = duration / 1000;
@@ -172,9 +165,6 @@ function startTest(): void {
   testRunning = true;
   updateStats();
 
-  // Always use maximum throughput (0 indicates unlimited rate)
-  const messagesPerSecond = 0;
-
   const testDuration = parseInt(
     (document.getElementById("testDuration") as HTMLInputElement).value,
     10,
@@ -199,6 +189,7 @@ function startTest(): void {
 
 // Function to stop the throughput test
 function stopTest(): void {
+  console.log("Stopping test", testRunning)
   if (!testRunning) return;
 
   testRunning = false;
@@ -225,7 +216,4 @@ window.addEventListener("load", () => {
   if (stopButton) {
     stopButton.addEventListener("click", stopTest);
   }
-
-  // Update stats periodically - more frequent updates during tests
-  setInterval(updateStats, 100);
 });
