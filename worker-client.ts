@@ -1,6 +1,6 @@
 // Worker Client - responsible for communication with the host worker
 
- // Constants
+// Constants
 const CLIENT_MTU = 2048; // Maximum transmission unit
 const CLIENT_HEADER_SIZE = 8; // 4 bytes for flag and 4 bytes for message length
 const MAX_WAIT_TIME = 10000; // 10 seconds timeout for Atomics.wait
@@ -12,6 +12,8 @@ function initClientWorker() {
   let sharedBuffer: SharedArrayBuffer | null = null;
   let sharedArray: Uint8Array | null = null;
   let int32Array: Int32Array | null = null;
+  let messagesReceived = 0;
+  let testRunning = false;
 
   // Write data to the host
   function writeToHost(data: Uint8Array): void {
@@ -52,7 +54,6 @@ function initClientWorker() {
           // Read the message length (4 bytes) at byte offset 4
           const dataView = new DataView(sharedBuffer!);
           const messageLength = dataView.getUint32(4, true); // true for little-endian
-          console.log('got message length '+messageLength)
 
           if (messageLength > CLIENT_MTU) {
             console.error(`Message too large: ${messageLength} bytes`);
@@ -73,21 +74,41 @@ function initClientWorker() {
           // Send an acknowledgment to the host
           port!.postMessage({ type: "ack", ack: true });
 
-          // Process the message
-          const text = new TextDecoder().decode(message);
+          // Increment message counter
+          messagesReceived++;
+
+          // Notify main thread about received message for statistics
           self.postMessage({
-            message: `Received ${messageLength} bytes: ${text}`,
+            type: "messageReceived",
           });
 
-          // Echo the message back to the host
-          const echoMessage = new Uint8Array(message.length + 6); // Add space for "Echo: "
-          const echoPrefix = new TextEncoder().encode("Echo: ");
-          echoMessage.set(echoPrefix, 0);
-          echoMessage.set(message, echoPrefix.length);
-          writeToHost(echoMessage);
+          // Only log detailed message info for the first few messages during a test
+          // to avoid overwhelming the UI
+          if (
+            !testRunning ||
+            messagesReceived <= 5 ||
+            messagesReceived % 100 === 0
+          ) {
+            self.postMessage({
+              message: `Received ${messageLength} bytes`,
+            });
+          }
 
-          // Simulate some processing time
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          // During throughput tests, we don't echo back to avoid affecting measurements
+          if (!testRunning) {
+            // Echo the message back to the host
+            const echoMessage = new Uint8Array(message.length + 6); // Add space for "Echo: "
+            const echoPrefix = new TextEncoder().encode("Echo: ");
+            echoMessage.set(echoPrefix, 0);
+            echoMessage.set(message, echoPrefix.length);
+            writeToHost(echoMessage);
+          }
+
+          // No processing delay during throughput tests
+          if (!testRunning) {
+            // Simulate some processing time
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
         } catch (error) {
           console.error("Error in read loop:", error);
           // Continue the loop even if there's an error
@@ -100,7 +121,7 @@ function initClientWorker() {
 
   // Handle messages from the host
   function handleHostMessage(event: MessageEvent): void {
-    const { type, buffer } = event.data;
+    const { type, buffer, testMode } = event.data;
 
     if (type === "sharedBuffer" && buffer instanceof SharedArrayBuffer) {
       // Store the shared buffer
@@ -115,6 +136,19 @@ function initClientWorker() {
 
       // Start the reader thread
       startReaderThread();
+    } else if (type === "startTest") {
+      // Enter test mode
+      testRunning = true;
+      messagesReceived = 0;
+      self.postMessage({
+        message: "Client entered test mode",
+      });
+    } else if (type === "stopTest") {
+      // Exit test mode
+      testRunning = false;
+      self.postMessage({
+        message: `Client exited test mode, received ${messagesReceived} messages`,
+      });
     }
   }
 
@@ -127,8 +161,8 @@ function initClientWorker() {
       port = messagePort;
 
       // Listen for messages from the host worker
-      port!.addEventListener("message", handleHostMessage);
-      port!.start();
+      port.addEventListener("message", handleHostMessage);
+      port.start();
 
       // Notify the main thread that initialization is complete
       self.postMessage({
@@ -137,6 +171,17 @@ function initClientWorker() {
     } else if (type === "sendToHost" && data instanceof Uint8Array) {
       // Send the message to the host
       writeToHost(data);
+    } else if (type === "startTest") {
+      // Forward to host message handler with the test parameters
+      handleHostMessage({
+        data: {
+          type: "startTest",
+          testMode: true,
+        },
+      } as MessageEvent);
+    } else if (type === "stopTest") {
+      // Forward to host message handler
+      handleHostMessage({ data: { type: "stopTest" } } as MessageEvent);
     }
   });
 

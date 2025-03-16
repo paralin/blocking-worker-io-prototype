@@ -84,4 +84,3 @@ Review this design proposal, with the following in mind:
 - We don't need a ring buffer here since we are sending only one message at a
   time and removing it from the SharedArrayBuffer once received, and we need
   guaranteed lossless message delivery.
-
