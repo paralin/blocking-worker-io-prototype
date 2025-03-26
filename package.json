@@ -3,7 +3,8 @@
   "private": true,
   "description": "Worker I/O Prototype",
   "scripts": {
-    "serve": "./serve.bash"
+    "serve": "./serve.bash",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "esbuild": "^0.19.0",

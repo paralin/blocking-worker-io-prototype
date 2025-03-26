@@ -3,13 +3,73 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Worker I/O Prototype</title>
+    <title>Worker I/O Throughput Test</title>
     <style>
       body {
         font-family: system-ui, sans-serif;
-        max-width: 800px;
+        max-width: 1200px;
         margin: 0 auto;
         padding: 20px;
+      }
+      .container {
+        display: flex;
+        gap: 20px;
+      }
+      .controls {
+        flex: 1;
+        padding: 20px;
+        background-color: #f5f5f5;
+        border-radius: 8px;
+      }
+      .stats {
+        flex: 1;
+        padding: 20px;
+        background-color: #f0f8ff;
+        border-radius: 8px;
+      }
+      .log-container {
+        flex: 2;
+        height: 400px;
+        overflow-y: auto;
+        background-color: #f9f9f9;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 10px;
+        font-family: monospace;
+      }
+      .control-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      button {
+        padding: 10px 15px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-right: 10px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      #stats {
+        line-height: 1.6;
       }
       pre {
         background-color: #f5f5f5;
@@ -17,22 +77,56 @@
         border-radius: 4px;
         overflow: auto;
       }
-      button {
-        margin: 10px 0;
-        padding: 8px 16px;
-      }
-      #log {
-        margin-top: 20px;
-        border: 1px solid #ddd;
-        padding: 10px;
-        height: 300px;
-        overflow: auto;
-      }
     </style>
   </head>
   <body>
-    <h1>Worker I/O Prototype</h1>
-    <div id="log"></div>
+    <h1>Worker I/O Throughput Test</h1>
+
+    <div class="container">
+      <div class="controls">
+        <h2>Test Controls</h2>
+
+        <div class="control-group">
+          <label for="messageSize">Message Size (bytes):</label>
+          <input
+            type="number"
+            id="messageSize"
+            value="1024"
+            min="1"
+            max="2048"
+          />
+        </div>
+
+        <div class="control-group">
+          <label for="testDuration">Test Duration (seconds):</label>
+          <input type="number" id="testDuration" value="10" min="1" max="60" />
+        </div>
+
+        <div class="control-group">
+          <button id="startTest">Start Test</button>
+          <button id="stopTest">Stop Test</button>
+        </div>
+      </div>
+
+      <div class="stats">
+        <h2>Test Statistics</h2>
+        <div id="stats">
+          <div>Test running: No</div>
+          <div>Messages sent: 0</div>
+          <div>Messages received: 0</div>
+          <div>Queue depth: 0</div>
+          <div>Message size: 0 bytes</div>
+          <div>Total bytes: 0 KB</div>
+          <div>Duration: 0 seconds</div>
+          <div>Throughput: 0 msgs/sec</div>
+          <div>Bandwidth: 0 MB/sec</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Log</h2>
+    <div class="log-container" id="log"></div>
+
     <script type="module" src="dist/index.js"></script>
   </body>
 </html>
